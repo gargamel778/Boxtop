@@ -4,10 +4,12 @@ on:
   push:
     branches: [main]
   pull_request:
+  workflow_dispatch:
 
 jobs:
   build:
-    runs-on: macos-26
+    # Intel runner: the arm64 pool is often out of capacity, and this runs the tests on x86_64.
+    runs-on: macos-26-intel
     steps:
       - uses: actions/checkout@v4
 
