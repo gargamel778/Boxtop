@@ -129,8 +129,13 @@ enum Diagnostics {
     static func renderDockPreviews(to directory: String) {
         let palette = Palette.standard
         func colors(_ gradient: Gradient) -> [NSColor] { gradient.stops.map { NSColor($0.color) } }
-        let wave = (0..<30).map { i in min(1, max(0, 0.35 + 0.3 * sin(Double(i) / 3.2) + Double(i % 5) * 0.04)) }
-        let cores = [0.92, 0.75, 0.6, 0.55, 0.4, 0.33, 0.2, 0.15, 0.1, 0.08, 0.05, 0.04, 0.7, 0.5, 0.3, 0.2, 0.1, 0.05]
+        // Split up and typed: as one expression it is too much for the Swift 6.3 (Xcode 26) type checker.
+        let wave: [Double] = (0..<30).map { (i: Int) -> Double in
+            let swing: Double = 0.3 * sin(Double(i) / 3.2)
+            let ripple: Double = Double(i % 5) * 0.04
+            return min(1, max(0, 0.35 + swing + ripple))
+        }
+        let cores: [Double] = [0.92, 0.75, 0.6, 0.55, 0.4, 0.33, 0.2, 0.15, 0.1, 0.08, 0.05, 0.04, 0.7, 0.5, 0.3, 0.2, 0.1, 0.05]
         let models: [(String, DockTileModel)] = [
             ("cpu-history", DockTileModel(title: "CPU", value: "42%", graph: .history(wave, colors(palette.cpu)))),
             ("cpu-cores", DockTileModel(title: "CPU", value: "35%", graph: .columns(cores, NSColor(Palette.tint(palette.cpu))))),

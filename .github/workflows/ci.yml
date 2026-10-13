@@ -11,7 +11,7 @@ jobs:
     # Intel runner: the arm64 pool is often out of capacity, and this runs the tests on x86_64.
     runs-on: macos-26-intel
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
 
       - name: Toolchain
         run: |
@@ -29,7 +29,7 @@ jobs:
           lipo -info build/Boxtop.app/Contents/MacOS/Boxtop
           vtool -show-build build/Boxtop.app/Contents/MacOS/Boxtop | grep minos
 
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v7
         with:
           name: Boxtop.app
           path: build/Boxtop.app
