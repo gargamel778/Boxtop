@@ -1,0 +1,33 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+jobs:
+  build:
+    runs-on: macos-26
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Toolchain
+        run: |
+          xcodebuild -version
+          swift --version
+
+      - name: Test
+        run: swift test
+
+      - name: Build universal app
+        run: scripts/build-app.sh
+
+      - name: Check architectures and minimum macOS
+        run: |
+          lipo -info build/Boxtop.app/Contents/MacOS/Boxtop
+          vtool -show-build build/Boxtop.app/Contents/MacOS/Boxtop | grep minos
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: Boxtop.app
+          path: build/Boxtop.app

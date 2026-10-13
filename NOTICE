@@ -1,0 +1,19 @@
+Boxtop
+A native macOS GUI system monitor derived from btop++.
+Copyright 2026 The Boxtop Authors.
+
+This product includes software derived from btop
+(https://github.com/aristocratos/btop), Copyright 2021 Aristocratos
+(jakob@qvantnet.com), licensed under the Apache License, Version 2.0.
+
+Derived portions:
+  - Sources/CSysInfo/smc.c          from btop src/osx/smc.cpp, smc.hpp
+  - Sources/CSysInfo/hid_sensors.c  from btop src/osx/sensors.cpp
+  - Sources/CSysInfo/gpu_ioreport.c from btop src/osx/btop_collect.cpp (Gpu::AppleSilicon)
+  - Sources/CSysInfo/net_proc.c     from btop src/osx/btop_collect.cpp (Net, Proc)
+  - Sources/Boxtop/Collectors/*     logic ported from btop src/osx/btop_collect.cpp
+  - Sources/Boxtop/Theme/Theme.swift  default theme and theme-file rules from btop src/btop_theme.cpp
+  - Resources/themes/*.theme        theme files from btop themes/
+
+These files were modified: ported from C++ to C and Swift, adapted to a
+SwiftUI interface, and extended (see README.md, "Differences from btop").
