@@ -20,6 +20,11 @@ echo "==> Assembling $APP"
 rm -rf "$APP"
 mkdir -p "$APP/Contents/MacOS" "$APP/Contents/Resources"
 cp "$BIN_DIR/Boxtop" "$APP/Contents/MacOS/Boxtop"
+# The symbol table lists every source and object file by absolute path (the build machine's
+# home folder). Keep the debug info in a dSYM next to the app for crash reports, then strip it.
+rm -rf build/Boxtop.app.dSYM
+dsymutil "$APP/Contents/MacOS/Boxtop" -o build/Boxtop.app.dSYM
+strip -S -x "$APP/Contents/MacOS/Boxtop"
 cp -R Resources/themes "$APP/Contents/Resources/themes"
 [ -f Resources/AppIcon.icns ] && cp Resources/AppIcon.icns "$APP/Contents/Resources/AppIcon.icns"
 cp LICENSE NOTICE "$APP/Contents/Resources/"

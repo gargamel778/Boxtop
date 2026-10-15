@@ -11,6 +11,12 @@ swift test
 
 VERSION="$VERSION" scripts/build-app.sh
 
+echo "==> Checking for build-machine paths"
+if LC_ALL=C grep -r -a -F -l -e "$HOME/" -e "/Users/$(id -un)/" build/Boxtop.app; then
+    echo "error: the files above contain this machine's home path" >&2
+    exit 1
+fi
+
 echo "==> Packaging"
 mkdir -p dist
 ZIP="dist/Boxtop-$VERSION.zip"

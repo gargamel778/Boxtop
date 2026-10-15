@@ -12,7 +12,7 @@ binary (arm64 + x86_64).
 - Deploy to another Mac (e.g. an Intel test machine): `scripts/deploy-remote.sh user@host`. It needs SSH key auth. It copies the app, installs it, prints `--diagnose` and launches it.
 - Headless hardware report: `Boxtop.app/Contents/MacOS/Boxtop --diagnose`. Dock icon previews: `--render-dock-previews <dir>`.
 - App icon: `swift scripts/make-icon.swift [variant]` (default and current: `dashboard`).
-- Crash reports on a test machine: `~/Library/Logs/DiagnosticReports/Boxtop-*.ips`. Symbolicate by thinning the build (`lipo -thin x86_64`) and disassembling at the frame's imageOffset; UUIDs match `build/`.
+- Crash reports on a test machine: `~/Library/Logs/DiagnosticReports/Boxtop-*.ips`. Symbolicate with `atos -arch x86_64 -o build/Boxtop.app.dSYM -l <load address> <address>`; the dSYM's UUIDs match the app in `build/`.
 
 ## Layout
 
@@ -28,6 +28,7 @@ binary (arm64 + x86_64).
 - **Animations:** don't animate values that update every second. Implicit animations at 120 Hz took the app to ~50% CPU.
 - **Process table:** don't use SwiftUI `Table` for it. Diffing and re-measuring 1000+ reordering rows was the other big CPU cost. The NSOutlineView uses positional rows in the flat list (only visible rows are reloaded), cells laid out by hand, and an explicit cell pool.
 - **Header measuring:** `ViewThatFits` inside the pane header `HStack` mis-measures. Headers measure subtitle and accessory widths with `onGeometryChange` instead.
+- **Release binaries and personal paths:** the linker's symbol table lists every source file by absolute path, i.e. the build machine's home folder. `build-app.sh` saves a dSYM and then strips the binary, and `package-release.sh` fails if a home path is left. Check with a raw byte search (`grep -a`), because `strings` skips the symbol table.
 - **Screenshots for docs:** turn on Settings → General → Screenshot mode (`Model/Redactor.swift`), which strips the Mac's name, user name, IPs, other volumes and third-party processes.
 - **Hidden window:** the window stops drawing when occluded (sampling continues). `defaults write dev.boxtop.Boxtop debugAlwaysRender -bool YES` disables that for background screenshots; delete the key afterwards.
 - **Measuring CPU cost:** expect about 10% of one core with the window visible at a 1 s interval, and about 2.5% hidden. Check with `top -pid` after changes to views or the table.
