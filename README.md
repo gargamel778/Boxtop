@@ -61,7 +61,7 @@ The window stops drawing whenever it is completely hidden (covered, minimized, o
 
 Download `Boxtop-<version>.zip` from the Releases page, unzip it and move `Boxtop.app` to `/Applications`.
 
-Release builds are ad-hoc signed, not notarized, so macOS blocks the first launch. Right-click the app → Open → Open, or run:
+Release builds are ad-hoc signed, not notarized, so macOS blocks the first launch. Open Boxtop once, then go to System Settings → Privacy & Security and click Open Anyway. Or run:
 
 ```bash
 xattr -dr com.apple.quarantine /Applications/Boxtop.app
