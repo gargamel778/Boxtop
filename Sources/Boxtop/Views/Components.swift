@@ -10,31 +10,38 @@ extension EnvironmentValues {
 
 /// A workspace pane in the style of the Claude desktop app: a flat rounded panel with a hairline
 /// border, a plain title row (drag handle) and icon buttons on the right.
-struct Pane<Accessory: View, Content: View>: View {
+struct Pane<Accessory: View, Controls: View, Content: View>: View {
     @Environment(AppState.self) private var app: AppState?
     @Environment(\.baseFontSize) private var fontSize
 
     let kind: PaneKind
     var subtitle: String?
+    /// Read-outs and shortcuts that are dropped when the header is too narrow.
     let accessory: Accessory
+    /// Menus that must stay reachable (a GPU or interface picker). Always shown; titles truncate.
+    let controls: Controls
     let content: Content
 
     init(_ kind: PaneKind, subtitle: String? = nil,
          @ViewBuilder accessory: () -> Accessory = { EmptyView() },
+         @ViewBuilder controls: () -> Controls = { EmptyView() },
          @ViewBuilder content: () -> Content) {
         self.kind = kind
         self.subtitle = subtitle
         self.accessory = accessory()
+        self.controls = controls()
         self.content = content()
     }
 
     @State private var middleWidth: CGFloat = 0
     @State private var accessoryWidth: CGFloat = 0
+    @State private var controlsWidth: CGFloat = 0
     @State private var subtitleWidth: CGFloat = 0
 
-    private var showAccessory: Bool { accessoryWidth > 0 && accessoryWidth + 6 <= middleWidth }
+    private var controlsSpace: CGFloat { controlsWidth > 0 ? controlsWidth + 8 : 0 }
+    private var showAccessory: Bool { accessoryWidth > 0 && controlsSpace + accessoryWidth + 6 <= middleWidth }
     private var showSubtitle: Bool {
-        subtitle != nil && subtitleWidth + (showAccessory ? accessoryWidth + 14 : 0) <= middleWidth
+        subtitle != nil && subtitleWidth + controlsSpace + (showAccessory ? accessoryWidth + 14 : 0) <= middleWidth
     }
 
     private var shape: RoundedRectangle { RoundedRectangle(cornerRadius: 12, style: .continuous) }
@@ -68,6 +75,12 @@ struct Pane<Accessory: View, Content: View>: View {
             .fixedSize()
     }
 
+    private var controlsView: some View {
+        controls
+            .foregroundStyle(Color.secondaryText)
+            .lineLimit(1)
+    }
+
     private var header: some View {
         let layout = app?.layout
         let movable = !(layout?.locked ?? true) && layout?.maximized == nil
@@ -79,9 +92,11 @@ struct Pane<Accessory: View, Content: View>: View {
                 .fixedSize()
             // Narrow panes drop the subtitle first, then the accessory, instead of squeezing them.
             // Both are measured invisibly and shown only when they fit the space that is left.
+            // Controls always stay, so a picker can't vanish after picking a longer item.
             HStack(spacing: 8) {
                 if showSubtitle { subtitleText }
                 Spacer(minLength: 0)
+                controlsView.layoutPriority(1)
                 if showAccessory { accessoryView }
             }
             .frame(minWidth: 0, maxWidth: .infinity)
@@ -90,6 +105,9 @@ struct Pane<Accessory: View, Content: View>: View {
                 ZStack {
                     accessoryView
                         .onGeometryChange(for: CGFloat.self, of: { $0.size.width }) { accessoryWidth = $0 }
+                    controlsView
+                        .fixedSize()
+                        .onGeometryChange(for: CGFloat.self, of: { $0.size.width }) { controlsWidth = $0 }
                     subtitleText
                         .fixedSize()
                         .onGeometryChange(for: CGFloat.self, of: { $0.size.width }) { subtitleWidth = $0 }
@@ -151,7 +169,7 @@ struct IconButton: View {
     }
 }
 
-/// Title-style dropdown ("Name ⌄") for pane headers.
+/// Title-style dropdown ("Name ⌄") for pane headers. The title truncates when space is short.
 struct HeaderMenu<Items: View>: View {
     let title: String
     @ViewBuilder let items: Items
@@ -162,6 +180,8 @@ struct HeaderMenu<Items: View>: View {
         } label: {
             HStack(spacing: 4) {
                 Text(title)
+                    .lineLimit(1)
+                    .truncationMode(.tail)
                 Image(systemName: "chevron.down").font(.system(size: 9, weight: .semibold))
             }
             .foregroundStyle(Color.secondaryText)
@@ -170,7 +190,7 @@ struct HeaderMenu<Items: View>: View {
         .menuStyle(.button)
         .buttonStyle(.plain)
         .menuIndicator(.hidden)
-        .fixedSize()
+        .fixedSize(horizontal: false, vertical: true)
     }
 }
 

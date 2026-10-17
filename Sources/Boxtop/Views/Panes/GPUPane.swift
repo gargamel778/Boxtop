@@ -4,26 +4,24 @@ struct GPUPane: View {
     @Environment(AppState.self) private var app
     @Environment(\.palette) private var palette
     @Environment(\.baseFontSize) private var fontSize
-    @State private var selectedID: String?
 
     var body: some View {
         let gpus = app.monitor.latest?.gpus ?? []
-        let gpu = gpus.first { $0.id == selectedID } ?? gpus.first
+        let gpu = gpus.first { $0.id == app.preferences.gpu } ?? gpus.first
         let history = gpu.flatMap { app.monitor.gpuUtilization[$0.id] } ?? History()
 
         Pane(.gpu, subtitle: gpus.count > 1 ? nil : gpu.map(subtitle)) {
-            HStack(spacing: 12) {
-                if gpus.count > 1, let gpu {
-                    HeaderMenu(title: gpu.name) {
-                        Picker("GPU", selection: Binding(get: { gpu.id }, set: { selectedID = $0 })) {
-                            ForEach(gpus) { Text($0.name).tag($0.id) }
-                        }
-                        .pickerStyle(.inline)
+            if let temp = gpu?.temperature {
+                Meta(symbol: "thermometer.medium", text: app.preferences.temperatureUnit.format(temp),
+                     color: palette.temperature.color(at: (temp - 30) / 70))
+            }
+        } controls: {
+            if gpus.count > 1, let gpu {
+                HeaderMenu(title: gpu.name) {
+                    Picker("GPU", selection: Binding(get: { gpu.id }, set: { app.preferences.gpu = $0 })) {
+                        ForEach(gpus) { Text($0.name).tag($0.id) }
                     }
-                }
-                if let temp = gpu?.temperature {
-                    Meta(symbol: "thermometer.medium", text: app.preferences.temperatureUnit.format(temp),
-                         color: palette.temperature.color(at: (temp - 30) / 70))
+                    .pickerStyle(.inline)
                 }
             }
         } content: {

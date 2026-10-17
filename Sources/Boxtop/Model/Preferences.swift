@@ -93,6 +93,8 @@ final class Preferences {
     var networkInBits: Bool { didSet { set(networkInBits, "networkInBits") } }
     var networkSyncScale: Bool { didSet { set(networkSyncScale, "networkSyncScale") } }
     var networkInterface: String { didSet { set(networkInterface, "networkInterface") } }
+    /// The GPU pane's GPU on Macs with several; "" shows the first.
+    var gpu: String { didSet { set(gpu, "gpu") } }
 
     var processSort: ProcessSortKey { didSet { set(processSort.rawValue, "processSort.v2") } }
     var processDescending: Bool { didSet { set(processDescending, "processDescending") } }
@@ -130,6 +132,7 @@ final class Preferences {
         networkInBits = bool("networkInBits", false)
         networkSyncScale = bool("networkSyncScale", false)
         networkInterface = string("networkInterface", "")
+        gpu = string("gpu", "")
 
         processSort = ProcessSortKey(rawValue: string("processSort.v2", "")) ?? .cpu
         processDescending = bool("processDescending", true)

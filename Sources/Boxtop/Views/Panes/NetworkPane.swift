@@ -35,6 +35,7 @@ struct NetworkPane: View {
         let bits = app.preferences.networkInBits
 
         Pane(.net, subtitle: current?.ipv4 ?? current?.ipv6) {
+        } controls: {
             HeaderMenu(title: current.map { InterfaceNames.name($0.name) } ?? "No interface") {
                 interfaceMenu(interfaces, current: current)
             }

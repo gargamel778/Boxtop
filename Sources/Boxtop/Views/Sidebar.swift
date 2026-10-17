@@ -196,6 +196,7 @@ struct WindowControls: View {
                 }
                 .pickerStyle(.inline)
             }
+            .fixedSize()
             .help("Update interval")
             .padding(.trailing, 6)
         }

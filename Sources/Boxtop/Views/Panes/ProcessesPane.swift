@@ -10,19 +10,8 @@ struct ProcessesPane: View {
         let total = app.monitor.latest?.processes.count ?? 0
         let shown = app.preferences.processTree ? total : items.count
         Pane(.proc, subtitle: shown == total ? Fmt.count(total) : "\(Fmt.count(shown)) of \(Fmt.count(total))") {
+            // Details and Quit are also on ⌘I / ⌘⌫ and the context menu, so they can drop out.
             HStack(spacing: 4) {
-                HeaderMenu(title: app.preferences.processScope.label) {
-                    Picker("Show", selection: Binding(get: { app.preferences.processScope },
-                                                      set: { app.preferences.processScope = $0 })) {
-                        ForEach(ProcessScope.allCases) { Text($0.label).tag($0) }
-                    }
-                    .pickerStyle(.inline)
-                    Divider()
-                    Toggle("Tree View", isOn: Binding(get: { app.preferences.processTree },
-                                                      set: { app.preferences.processTree = $0 }))
-                    Toggle("% CPU per Core", isOn: Binding(get: { app.preferences.processPerCore },
-                                                           set: { app.preferences.processPerCore = $0 }))
-                }
                 IconButton(symbol: "info.circle", help: "Process details (⌘I)") {
                     if app.selectedPID != nil { app.showDetail.toggle() }
                 }
@@ -31,6 +20,19 @@ struct ProcessesPane: View {
                     app.requestQuit()
                 }
                 .disabled(app.selectedPID == nil)
+            }
+        } controls: {
+            HeaderMenu(title: app.preferences.processScope.label) {
+                Picker("Show", selection: Binding(get: { app.preferences.processScope },
+                                                  set: { app.preferences.processScope = $0 })) {
+                    ForEach(ProcessScope.allCases) { Text($0.label).tag($0) }
+                }
+                .pickerStyle(.inline)
+                Divider()
+                Toggle("Tree View", isOn: Binding(get: { app.preferences.processTree },
+                                                  set: { app.preferences.processTree = $0 }))
+                Toggle("% CPU per Core", isOn: Binding(get: { app.preferences.processPerCore },
+                                                       set: { app.preferences.processPerCore = $0 }))
             }
         } content: {
             ProcessOutline(app: app, items: items, tree: app.preferences.processTree,
