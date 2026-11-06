@@ -92,7 +92,7 @@ After unzipping, check that the signature is intact. `Signature=adhoc` is expect
 codesign --verify --deep --strict /Applications/Boxtop.app && codesign -dv /Applications/Boxtop.app
 ```
 
-If you'd rather not run a downloaded binary at all, [build it from source](#build). Apps you build yourself aren't quarantined and open normally.
+You can also skip all of this: [build Boxtop from source](#build). Apps you build yourself aren't quarantined, so they open normally, and you can [sign the build with your own certificate](#signing-with-your-own-certificate) if you want to give it your identity or copy it to other Macs.
 
 ### Troubleshooting
 
@@ -109,7 +109,7 @@ Boxtop doesn't ask for any privacy permissions (no Accessibility, Full Disk Acce
 scripts/build-app.sh
 ```
 
-This builds a universal release `build/Boxtop.app` (ad-hoc signed). Copy it to `/Applications` if you like.
+This builds a universal release `build/Boxtop.app` (ad-hoc signed). Copy it to `/Applications` if you like. It opens without the Gatekeeper prompt, because only downloaded files are quarantined.
 
 To build for one architecture only (faster):
 
@@ -134,6 +134,33 @@ To package a release (universal build, zip and SHA-256 checksum in `dist/`):
 ```bash
 VERSION=1.0.0 scripts/package-release.sh
 ```
+
+### Signing with your own certificate
+
+The ad-hoc signature is all your own Mac needs. To give the app an identity instead, for example to run it on other Macs, re-sign it with a certificate from your Apple account after building. These commands list the signing identities in your keychain and show the exact name to pass to `codesign`:
+
+```bash
+security find-identity -v -p codesigning
+```
+
+- **Apple Development** is free with any Apple Account: in Xcode, open Settings → Accounts, add your account, then Manage Certificates → + → Apple Development. It's fine for your own Macs, but a downloaded copy on another Mac still needs Open Anyway.
+
+  ```bash
+  codesign --force --deep --sign "Apple Development: you@example.com (TEAMID)" build/Boxtop.app
+  ```
+
+- **Developer ID Application** needs a paid Apple Developer Program membership. Sign with the hardened runtime and a timestamp, have Apple notarize the app, and staple the result. That copy opens on any Mac without warnings:
+
+  ```bash
+  codesign --force --deep --options runtime --timestamp --sign "Developer ID Application: Your Name (TEAMID)" build/Boxtop.app
+  ditto -c -k --keepParent build/Boxtop.app build/Boxtop-notarize.zip
+  # once: store your Apple ID and an app-specific password (from account.apple.com) in the keychain
+  xcrun notarytool store-credentials boxtop-notary --apple-id you@example.com --team-id TEAMID
+  xcrun notarytool submit build/Boxtop-notarize.zip --keychain-profile boxtop-notary --wait
+  xcrun stapler staple build/Boxtop.app
+  ```
+
+Either certificate writes its Apple account's name and team ID into the app's signature, where anyone with a copy can read it (`codesign -dv`).
 
 ### App icon
 
