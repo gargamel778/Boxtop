@@ -6,8 +6,14 @@ struct MenuBarLabel: View {
     @Environment(AppState.self) private var app
 
     var body: some View {
-        Image(nsImage: Self.render(values: Array(app.monitor.cpuTotal.values.suffix(24)),
-                                   percent: app.monitor.cpuTotal.last))
+        // SwiftUI evaluates the label even while the item is not in the menu bar; only read the
+        // monitor (and redraw every update) when it is.
+        if app.preferences.showMenuBarExtra {
+            Image(nsImage: Self.render(values: Array(app.monitor.cpuTotal.values.suffix(24)),
+                                       percent: app.monitor.cpuTotal.last))
+        } else {
+            Image(systemName: "gauge.with.dots.needle.33percent")
+        }
     }
 
     static func render(values: [Double], percent: Double) -> NSImage {

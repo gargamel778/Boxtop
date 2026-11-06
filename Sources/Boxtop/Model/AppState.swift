@@ -96,10 +96,37 @@ final class IconCache {
     static let shared = IconCache()
     private var cache: [String: NSImage] = [:]
     private lazy var executable = NSWorkspace.shared.icon(for: .unixExecutable)
+    /// Row-sized bitmap copies, keyed by the source icon (kept alive so its identifier stays unique).
+    private var thumbnails: [ObjectIdentifier: (source: NSImage, thumbnail: NSImage)] = [:]
 
+    /// A 16 pt bitmap of the process's icon for table rows. Workspace icons drawn directly go
+    /// through IconServices (placeholders, asynchronous rendering) every time a row redraws.
     func icon(pid: Int32, path: String) -> NSImage {
-        if let icon = RunningApps.shared.icon(pid, path: path) { return icon }
-        return icon(forExecutable: path)
+        let source = RunningApps.shared.icon(pid, path: path) ?? icon(forExecutable: path)
+        if let cached = thumbnails[ObjectIdentifier(source)] { return cached.thumbnail }
+        if thumbnails.count > 500 { thumbnails = [:] }
+        let thumbnail = Self.thumbnail(source)
+        thumbnails[ObjectIdentifier(source)] = (source, thumbnail)
+        return thumbnail
+    }
+
+    private static func thumbnail(_ icon: NSImage) -> NSImage {
+        let size = NSSize(width: 16, height: 16)
+        let image = NSImage(size: size)
+        for pixels in [16, 32] {
+            guard let rep = NSBitmapImageRep(bitmapDataPlanes: nil, pixelsWide: pixels, pixelsHigh: pixels, bitsPerSample: 8,
+                                             samplesPerPixel: 4, hasAlpha: true, isPlanar: false, colorSpaceName: .deviceRGB,
+                                             bytesPerRow: 0, bitsPerPixel: 0),
+                  let context = NSGraphicsContext(bitmapImageRep: rep) else { return icon }
+            rep.size = size
+            NSGraphicsContext.saveGraphicsState()
+            NSGraphicsContext.current = context
+            context.imageInterpolation = .high
+            icon.draw(in: NSRect(origin: .zero, size: size))
+            NSGraphicsContext.restoreGraphicsState()
+            image.addRepresentation(rep)
+        }
+        return image
     }
 
     func icon(forExecutable path: String) -> NSImage {
@@ -235,32 +262,31 @@ final class AppState {
         preferences.processPerCore ? perCore : perCore / Double(max(1, monitor.cpuInfo.logicalCores))
     }
 
-    /// Table sort order bridged to the persisted sort key and direction.
-    var sortOrder: [KeyPathComparator<ProcessItem>] {
-        get {
-            let order: SortOrder = preferences.processDescending ? .reverse : .forward
-            switch preferences.processSort {
-            case .name: return [KeyPathComparator(\.name, order: order)]
-            case .cpu: return [KeyPathComparator(\.cpu, order: order)]
-            case .cpuTime: return [KeyPathComparator(\.cpuTime, order: order)]
-            case .threads: return [KeyPathComparator(\.threads, order: order)]
-            case .memory: return [KeyPathComparator(\.memory, order: order)]
-            case .pid: return [KeyPathComparator(\.pid, order: order)]
-            case .user: return [KeyPathComparator(\.user, order: order)]
-            case .command: return [KeyPathComparator(\.command, order: order)]
+    /// Process rows in table order: the sort column, then pid, so equal rows keep their places.
+    /// Numeric columns sort plain (key, pid, index) triples: sorting the rows themselves moved five
+    /// strings' worth of reference counting per swap, and KeyPathComparator read values dynamically,
+    /// together a visible cost on slow Macs at ~700 rows a second.
+    nonisolated static func sortProcesses(_ items: [ProcessItem], by key: ProcessSortKey, descending: Bool) -> [ProcessItem] {
+        let value: (ProcessItem) -> Double
+        switch key {
+        case .name, .user, .command:
+            let text: (ProcessItem) -> String = key == .name ? { $0.name } : key == .user ? { $0.user } : { $0.command }
+            return items.sorted { a, b in
+                switch text(a).localizedStandardCompare(text(b)) {
+                case .orderedSame: a.pid < b.pid
+                case .orderedAscending: !descending
+                case .orderedDescending: descending
+                }
             }
+        case .cpu: value = { $0.cpu }
+        case .cpuTime: value = { $0.cpuTime }
+        case .threads: value = { Double($0.threads) }
+        case .memory: value = { Double($0.memory) }
+        case .pid: value = { Double($0.pid) }
         }
-        set {
-            guard let first = newValue.first else { return }
-            let keys: [(PartialKeyPath<ProcessItem>, ProcessSortKey)] = [
-                (\.name, .name), (\.cpu, .cpu), (\.cpuTime, .cpuTime), (\.threads, .threads),
-                (\.memory, .memory), (\.pid, .pid), (\.user, .user), (\.command, .command),
-            ]
-            if let key = keys.first(where: { $0.0 == first.keyPath })?.1 {
-                preferences.processSort = key
-                preferences.processDescending = first.order == .reverse
-            }
-        }
+        var keyed = items.indices.map { (value: value(items[$0]), pid: items[$0].pid, index: $0) }
+        keyed.sort { a, b in a.value == b.value ? a.pid < b.pid : (a.value < b.value) != descending }
+        return keyed.map { items[$0.index] }
     }
 
     func setSort(_ key: ProcessSortKey) {
@@ -294,16 +320,8 @@ final class AppState {
                         cpu: displayCPU(p.cpuPerCore), cpuTime: p.cpuTimeSeconds, threads: p.threads,
                         memory: p.residentBytes, state: p.state)
         }
-        let order = sortOrder
-        func sorted(_ items: [ProcessItem]) -> [ProcessItem] {
-            items.sorted { a, b in
-                switch order[0].compare(a, b) {
-                case .orderedAscending: true
-                case .orderedDescending: false
-                case .orderedSame: a.pid < b.pid
-                }
-            }
-        }
+        let sortKey = preferences.processSort, descending = preferences.processDescending
+        func sorted(_ items: [ProcessItem]) -> [ProcessItem] { Self.sortProcesses(items, by: sortKey, descending: descending) }
 
         guard preferences.processTree else {
             return sorted(processes.filter(matches).map(item))

@@ -16,6 +16,18 @@ final class DiskCollector {
     private var volumeNames: [String: String] = [:]
     private var lastTime: Date?
 
+    /// APFS volumes' registry entries with the properties that don't change. Matching the services
+    /// and reading four properties per volume every second was most of the collector's time, so
+    /// the list is rebuilt every 10 s or when the mounts change, and only Statistics is read each tick.
+    private struct APFSEntry { var entry: io_object_t; var bsdName: String; var group: String?; var mountFrom: String? }
+    private var apfsEntries: [APFSEntry] = []
+    private var apfsListed = Date.distantPast
+    private var apfsMountCount: Int32 = -1
+
+    deinit {
+        for volume in apfsEntries { IOObjectRelease(volume.entry) }
+    }
+
     func collect(showHidden: Bool) -> [DiskSample] {
         let now = Date()
         let elapsed = lastTime.map { now.timeIntervalSince($0) } ?? 0
@@ -25,7 +37,7 @@ final class DiskCollector {
         let count = getmntinfo(&mounts, MNT_NOWAIT)
         guard count > 0, let mounts else { return [] }
 
-        let volumes = Self.apfsVolumes()
+        let volumes = apfsVolumes(mountCount: count)
         var disks: [DiskSample] = []
         var counters: [String: IOCounter] = [:]
 
@@ -96,21 +108,27 @@ final class DiskCollector {
         return name
     }
 
-    private static func apfsVolumes() -> [APFSVolume] {
-        var result: [APFSVolume] = []
-        IORegistry.forEach(matching: "AppleAPFSVolume") { entry in
-            guard let bsd = IORegistry.property(entry, "BSD Name", as: String.self),
-                  let stats = IORegistry.property(entry, "Statistics", as: [String: Any].self) else { return }
+    private func apfsVolumes(mountCount: Int32) -> [APFSVolume] {
+        if mountCount != apfsMountCount || Date().timeIntervalSince(apfsListed) >= 10 {
+            for volume in apfsEntries { IOObjectRelease(volume.entry) }
+            apfsEntries = []
+            IORegistry.forEach(matching: "AppleAPFSVolume") { entry in
+                guard let bsd = IORegistry.property(entry, "BSD Name", as: String.self) else { return }
+                IOObjectRetain(entry)
+                apfsEntries.append(APFSEntry(entry: entry, bsdName: bsd,
+                                             group: IORegistry.property(entry, "VolGroupUUID", as: String.self),
+                                             mountFrom: IORegistry.property(entry, "VolGroupMntFromName", as: String.self)))
+            }
+            apfsMountCount = mountCount
+            apfsListed = Date()
+        }
+        return apfsEntries.compactMap { volume in
+            guard let stats = IORegistry.property(volume.entry, "Statistics", as: [String: Any].self) else { return nil }
             let read = (stats["Bytes read from block device"] as? NSNumber)?.uint64Value ?? 0
             let write = (stats["Bytes written to block device"] as? NSNumber)?.uint64Value ?? 0
-            result.append(APFSVolume(
-                bsdName: bsd,
-                group: IORegistry.property(entry, "VolGroupUUID", as: String.self),
-                mountFrom: IORegistry.property(entry, "VolGroupMntFromName", as: String.self),
-                counter: IOCounter(read: read, write: write)
-            ))
+            return APFSVolume(bsdName: volume.bsdName, group: volume.group, mountFrom: volume.mountFrom,
+                              counter: IOCounter(read: read, write: write))
         }
-        return result
     }
 
     private static func counter(for device: String, volumes: [APFSVolume]) -> IOCounter? {

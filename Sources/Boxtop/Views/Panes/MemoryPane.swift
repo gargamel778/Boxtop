@@ -139,8 +139,13 @@ private struct DiskCard: View {
     @Environment(\.baseFontSize) private var fontSize
     let disk: DiskSample
     let activity: History
+    /// Width for the text column. Layouts are picked from it rather than with ViewThatFits, which
+    /// measured every candidate (all of their text) on each update, a real cost on slow Macs.
+    @State private var width: CGFloat = 0
 
     var body: some View {
+        // Thresholds are in points at the default 13 pt text size.
+        let scale = fontSize / 13
         Card(fill: false) {
             HStack(alignment: .top, spacing: 10) {
                 Image(systemName: symbol)
@@ -148,12 +153,13 @@ private struct DiskCard: View {
                     .foregroundStyle(Color.secondaryText)
                     .frame(width: 24)
                 VStack(alignment: .leading, spacing: 6) {
-                    ViewThatFits(in: .horizontal) {
+                    if width >= 210 * scale {
                         HStack(alignment: .firstTextBaseline) {
-                            Text(disk.name).foregroundStyle(Color.primaryText).lineLimit(1).fixedSize()
+                            Text(disk.name).foregroundStyle(Color.primaryText).lineLimit(1)
                             Spacer(minLength: 8)
-                            sizeText.fixedSize()
+                            sizeText.fixedSize().layoutPriority(1)
                         }
+                    } else {
                         VStack(alignment: .leading, spacing: 2) {
                             Text(disk.name).foregroundStyle(Color.primaryText).lineLimit(1)
                             sizeText
@@ -161,18 +167,22 @@ private struct DiskCard: View {
                     }
                     CapacityBar(segments: [(disk.usedPercent / 100, palette.usage.color(at: max(0, disk.usedPercent - 50) / 50))], height: 6)
                     if let read = disk.readRate, let write = disk.writeRate {
-                        ViewThatFits(in: .horizontal) {
-                            HStack(spacing: 12) {
+                        Group {
+                            if width >= 250 * scale {
+                                HStack(spacing: 12) {
+                                    io(read, write)
+                                    Spacer(minLength: 8)
+                                    GraphView(values: activity.values, maxValue: max(1024 * 1024, activity.values.max() ?? 0),
+                                              color: palette.read, style: .line, pitch: 2.5, lineWidth: 1)
+                                        .frame(width: 80, height: 16)
+                                }
+                            } else if width >= 150 * scale {
                                 io(read, write)
-                                Spacer(minLength: 8)
-                                GraphView(values: activity.values, maxValue: max(1024 * 1024, activity.values.max() ?? 0),
-                                          color: palette.read, style: .line, pitch: 2.5, lineWidth: 1)
-                                    .frame(width: 80, height: 16)
-                            }
-                            HStack(spacing: 12) { io(read, write) }
-                            VStack(alignment: .leading, spacing: 2) {
-                                Meta(symbol: "arrow.down", text: Fmt.rate(read, bits: false), color: palette.read)
-                                Meta(symbol: "arrow.up", text: Fmt.rate(write, bits: false), color: palette.write)
+                            } else {
+                                VStack(alignment: .leading, spacing: 2) {
+                                    Meta(symbol: "arrow.down", text: Fmt.rate(read, bits: false), color: palette.read)
+                                    Meta(symbol: "arrow.up", text: Fmt.rate(write, bits: false), color: palette.write)
+                                }
                             }
                         }
                         .font(.system(size: fontSize - 2))
@@ -185,6 +195,8 @@ private struct DiskCard: View {
                 }
             }
         }
+        // The card fills the pane's width whatever it shows, so measuring it can't feed back.
+        .onGeometryChange(for: CGFloat.self, of: { $0.size.width - 54 }) { width = $0 }
         .contentShape(Rectangle())
         .help("\(disk.mountPoint)\n\(disk.device) · \(disk.fsType)\n\(Fmt.size(disk.free)) available")
         .contextMenu {

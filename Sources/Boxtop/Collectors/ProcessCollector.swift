@@ -85,7 +85,10 @@ final class ProcessCollector {
                 startTime: cached.startTime
             ))
         }
-        cache = cache.filter { alive.contains($0.key) }
+        // Drop exited processes in place (rebuilding the cache every second was a visible cost).
+        if cache.count > alive.count {
+            for pid in cache.keys.filter({ !alive.contains($0) }) { cache[pid] = nil }
+        }
         return result
     }
 

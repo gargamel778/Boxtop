@@ -56,7 +56,7 @@ struct ProcessOutline: NSViewRepresentable {
         outline.headerView?.menu = coordinator.headerMenu(for: outline)
         coordinator.outline = outline
 
-        let scroll = NSScrollView()
+        let scroll = ProcessScrollView()
         scroll.documentView = outline
         scroll.drawsBackground = false
         scroll.hasVerticalScroller = true
@@ -118,6 +118,11 @@ struct ProcessOutline: NSViewRepresentable {
         private var collapsed = Set<Int32>()
         private var updatingSelection = false
         private var fontSize: Double = 13
+        private var textFont = NSFont.systemFont(ofSize: 12.5)
+        private var numericFont = NSFont.monospacedDigitSystemFont(ofSize: 12.5, weight: .regular)
+        /// Pre-order pids and child counts of the last tree, to skip reloads when only values changed.
+        private var treeShape: [Int32] = []
+        private static let suspendedColor = NSColor(Color.accentClay)
         private let rowMenuStorage = NSMenu()
 
         init(app: AppState) {
@@ -133,6 +138,8 @@ struct ProcessOutline: NSViewRepresentable {
             guard let outline else { return }
             if self.fontSize != fontSize || outline.rowHeight != CGFloat(fontSize + 9) {
                 self.fontSize = fontSize
+                textFont = NSFont.systemFont(ofSize: CGFloat(fontSize - 0.5))
+                numericFont = NSFont.monospacedDigitSystemFont(ofSize: CGFloat(fontSize - 0.5), weight: .regular)
                 outline.rowHeight = CGFloat(fontSize + 9)
             }
             let treeChanged = tree != self.tree
@@ -162,8 +169,9 @@ struct ProcessOutline: NSViewRepresentable {
             if treeChanged { outline.scrollRowToVisible(0) }
         }
 
-        /// Flat list: rows are reused positionally and only the visible ones are redrawn, unless the
-        /// number of processes changed.
+        /// Flat list: rows are positional slots whose contents change in place. Processes that come
+        /// and go only add or remove rows at the end, and the cells on screen are updated where they
+        /// are. (Reloading rows made AppKit replace every visible cell view each second.)
         private func updateFlat(_ items: [ProcessItem], outline: NSOutlineView, structureChanged: Bool) {
             while slots.count < items.count { slots.append(Node(items[slots.count])) }
             for (index, item) in items.enumerated() {
@@ -171,30 +179,60 @@ struct ProcessOutline: NSViewRepresentable {
                 slots[index].children = []
             }
             nodes = [:]
-            if structureChanged || roots.count != items.count {
-                roots = Array(slots.prefix(items.count))
+            treeShape = []
+            let old = roots.count
+            roots = Array(slots.prefix(items.count))
+            if structureChanged {
                 outline.reloadData()
-            } else {
-                let visible = outline.rows(in: outline.visibleRect)
-                guard visible.length > 0 else { return }
-                outline.reloadData(forRowIndexes: IndexSet(integersIn: visible.location..<(visible.location + visible.length)),
-                                   columnIndexes: IndexSet(integersIn: 0..<outline.numberOfColumns))
+                return
+            }
+            if items.count > old {
+                outline.insertItems(at: IndexSet(integersIn: old..<items.count), inParent: nil, withAnimation: [])
+            } else if items.count < old {
+                outline.removeItems(at: IndexSet(integersIn: items.count..<old), inParent: nil, withAnimation: [])
+            }
+            refreshVisibleCells(outline)
+        }
+
+        /// Writes the current values into the cells already on screen, without replacing any views.
+        private func refreshVisibleCells(_ outline: NSOutlineView) {
+            let visible = outline.rows(in: outline.visibleRect)
+            let end = min(visible.location + visible.length, outline.numberOfRows)
+            guard visible.location < end else { return }
+            let keys = outline.tableColumns.map { ProcessSortKey(rawValue: $0.identifier.rawValue) }
+            for row in visible.location..<end {
+                guard let node = outline.item(atRow: row) as? Node else { continue }
+                for (column, key) in keys.enumerated() {
+                    guard let key, let cell = outline.view(atColumn: column, row: row, makeIfNecessary: false) as? ProcessCell
+                    else { continue }
+                    configure(cell, key: key, item: node.item)
+                }
             }
         }
 
         /// Tree view: one node per pid so expansion and selection survive the full reload.
         private func updateTree(_ items: [ProcessItem], outline: NSOutlineView) {
             var seen = [Int32: Node]()
+            var shape: [Int32] = []
             func build(_ item: ProcessItem) -> Node {
                 let node = nodes[item.pid] ?? Node(item)
                 node.item = item
+                shape.append(item.pid)
+                shape.append(Int32(item.children?.count ?? 0))
                 node.children = (item.children ?? []).map(build)
                 seen[item.pid] = node
                 return node
             }
+            let reused = !nodes.isEmpty
             roots = items.map(build)
             nodes = seen
             collapsed = collapsed.filter { seen[$0] != nil }
+            // Same processes in the same places: only the values changed.
+            if reused, shape == treeShape {
+                refreshVisibleCells(outline)
+                return
+            }
+            treeShape = shape
             outline.reloadData()
             // New parents start expanded unless the user collapsed them (parents before children,
             // since an item can only expand once its parent is visible).
@@ -241,40 +279,44 @@ struct ProcessOutline: NSViewRepresentable {
 
         // MARK: Delegate
 
+        func outlineView(_ outlineView: NSOutlineView, rowViewForItem item: Any) -> NSTableRowView? {
+            outlineView.makeView(withIdentifier: ProcessRowView.identifier, owner: nil) as? ProcessRowView ?? ProcessRowView()
+        }
+
         func outlineView(_ outlineView: NSOutlineView, viewFor tableColumn: NSTableColumn?, item: Any) -> NSView? {
             guard let node = item as? Node, let tableColumn,
                   let key = ProcessSortKey(rawValue: tableColumn.identifier.rawValue) else { return nil }
-            let item = node.item
             let cell = dequeue(tableColumn.identifier) ?? ProcessCell(identifier: tableColumn.identifier, withIcon: key == .name)
-            let numeric = NSFont.monospacedDigitSystemFont(ofSize: CGFloat(fontSize - 0.5), weight: .regular)
-            let text = NSFont.systemFont(ofSize: CGFloat(fontSize - 0.5))
-            switch key {
-            case .name:
-                cell.set(item.name, font: text, color: .labelColor, trailing: false)
-                cell.imageView?.image = IconCache.shared.icon(pid: item.pid, path: item.path)
-                cell.toolTip = item.state == .stopped ? "Suspended" : nil
-                cell.textField?.textColor = item.state == .stopped ? NSColor(Color.accentClay) : .labelColor
-            case .cpu:
-                cell.set(String(format: "%.1f", item.cpu), font: numeric, color: .labelColor, trailing: true)
-            case .memory:
-                cell.set(Fmt.memory(item.memory), font: numeric, color: .labelColor, trailing: true)
-            case .cpuTime:
-                cell.set(Fmt.cpuTime(item.cpuTime), font: numeric, color: .labelColor, trailing: true)
-            case .threads:
-                cell.set(String(item.threads), font: numeric, color: .labelColor, trailing: true)
-            case .pid:
-                cell.set(String(item.pid), font: numeric, color: .secondaryLabelColor, trailing: true)
-            case .user:
-                cell.set(item.user, font: text, color: .secondaryLabelColor, trailing: false)
-            case .command:
-                cell.set(item.command, font: text, color: .secondaryLabelColor, trailing: false)
-                cell.toolTip = item.command
-            }
+            configure(cell, key: key, item: node.item)
             return cell
         }
 
-        // Explicit recycling: every reload replaces all visible rows, and NSTableView's own reuse
-        // queue was not handing back programmatically created cells.
+        private func configure(_ cell: ProcessCell, key: ProcessSortKey, item: ProcessItem) {
+            switch key {
+            case .name:
+                let stopped = item.state == .stopped
+                cell.set(item.name, font: textFont, color: stopped ? Self.suspendedColor : .labelColor, trailing: false,
+                         toolTip: stopped ? "Suspended" : nil)
+                cell.setIcon(IconCache.shared.icon(pid: item.pid, path: item.path))
+            case .cpu:
+                cell.set(String(format: "%.1f", item.cpu), font: numericFont, color: .labelColor, trailing: true)
+            case .memory:
+                cell.set(Fmt.memory(item.memory), font: numericFont, color: .labelColor, trailing: true)
+            case .cpuTime:
+                cell.set(Fmt.cpuTime(item.cpuTime), font: numericFont, color: .labelColor, trailing: true)
+            case .threads:
+                cell.set(String(item.threads), font: numericFont, color: .labelColor, trailing: true)
+            case .pid:
+                cell.set(String(item.pid), font: numericFont, color: .secondaryLabelColor, trailing: true)
+            case .user:
+                cell.set(item.user, font: textFont, color: .secondaryLabelColor, trailing: false)
+            case .command:
+                cell.set(item.command, font: textFont, color: .secondaryLabelColor, trailing: false, toolTip: item.command)
+            }
+        }
+
+        // Explicit recycling for rows that scroll out or a full reload: NSTableView's own reuse queue
+        // was not handing back programmatically created cells.
         private var pool: [NSUserInterfaceItemIdentifier: [ProcessCell]] = [:]
 
         private func dequeue(_ identifier: NSUserInterfaceItemIdentifier) -> ProcessCell? {
@@ -382,6 +424,21 @@ struct ProcessOutline: NSViewRepresentable {
     }
 }
 
+/// Gives the name column back the width it gained while the pane was larger (say, maximized).
+/// The table scrolls sideways, so AppKit keeps that width and the numeric columns end up out of view.
+final class ProcessScrollView: NSScrollView {
+    override func tile() {
+        super.tile()
+        guard let table = documentView as? NSTableView,
+              let name = table.tableColumns.first(where: { $0.identifier.rawValue == ProcessSortKey.name.rawValue })
+        else { return }
+        let excess = table.frame.width - contentView.bounds.width
+        let defaultWidth = ProcessOutline.Coordinator.columns[0].width
+        guard excess > 1, name.width > defaultWidth else { return }
+        name.width = max(defaultWidth, name.width - excess)
+    }
+}
+
 /// Outline view that turns ⌫ into Quit and Return into Show Details.
 final class ProcessOutlineView: NSOutlineView {
     var onDelete: (() -> Void)?
@@ -399,53 +456,94 @@ final class ProcessOutlineView: NSOutlineView {
     }
 }
 
-/// Table cell with an optional icon and a single-line label, laid out by hand (no constraints)
-/// because hundreds of cells are reconfigured every second.
+/// Row view that draws its cells into its own layer: one backing store per row instead of one per
+/// cell, since all of a row's cells change together every second anyway.
+final class ProcessRowView: NSTableRowView {
+    static let identifier = NSUserInterfaceItemIdentifier("ProcessRow")
+
+    init() {
+        super.init(frame: .zero)
+        identifier = Self.identifier
+        wantsLayer = true
+        canDrawSubviewsIntoLayer = true
+    }
+
+    required init?(coder: NSCoder) { fatalError("init(coder:) is not supported") }
+}
+
+/// Table cell that draws its icon and one-line label itself. NSTextField and NSImageView cells each
+/// brought a layer, a layout pass and an appearance-driven redraw for some 250 cells that change
+/// every second; on slow Macs that machinery cost more than drawing the text.
 final class ProcessCell: NSTableCellView {
     private let hasIcon: Bool
+    private var text = ""
+    private var font = NSFont.systemFont(ofSize: 12.5)
+    private var lineHeight: CGFloat = 16
+    private var color = NSColor.labelColor
+    private var trailing = false
+    private var icon: NSImage?
+
+    private static let paragraphs: [Bool: NSParagraphStyle] = ([false: .left, true: .right] as [Bool: NSTextAlignment]).mapValues { alignment in
+        let style = NSMutableParagraphStyle()
+        style.alignment = alignment
+        style.lineBreakMode = .byTruncatingTail
+        return style
+    }
 
     init(identifier: NSUserInterfaceItemIdentifier, withIcon: Bool) {
         hasIcon = withIcon
         super.init(frame: .zero)
         self.identifier = identifier
-        let label = NSTextField(labelWithString: "")
-        label.lineBreakMode = .byTruncatingTail
-        label.cell?.truncatesLastVisibleLine = true
-        addSubview(label)
-        textField = label
-        if withIcon {
-            let icon = NSImageView()
-            icon.imageScaling = .scaleProportionallyUpOrDown
-            addSubview(icon)
-            imageView = icon
-        }
+        setAccessibilityElement(true)
+        setAccessibilityRole(.staticText)
     }
 
     required init?(coder: NSCoder) { fatalError("init(coder:) is not supported") }
 
-    override func layout() {
-        super.layout()
-        guard let textField else { return }
-        var x: CGFloat = 2
-        if hasIcon, let imageView {
-            imageView.frame = NSRect(x: x, y: (bounds.height - 16) / 2, width: 16, height: 16)
-            x += 22
-        }
-        let height = ceil(textField.intrinsicContentSize.height)
-        textField.frame = NSRect(x: x, y: (bounds.height - height) / 2, width: max(0, bounds.width - x - 2), height: height)
+    override var wantsUpdateLayer: Bool { false }
+
+    /// Selected rows (emphasized) draw their text in the selection text color.
+    override var backgroundStyle: NSView.BackgroundStyle {
+        didSet { if backgroundStyle != oldValue { needsDisplay = true } }
     }
 
-    func set(_ string: String, font: NSFont, color: NSColor, trailing: Bool) {
-        guard let textField else { return }
-        if textField.stringValue != string { textField.stringValue = string }
-        if textField.font != font {
-            textField.font = font
-            needsLayout = true
+    /// Only redraws when a value changed.
+    func set(_ string: String, font: NSFont, color: NSColor, trailing: Bool, toolTip tip: String? = nil) {
+        var changed = false
+        if text != string { text = string; changed = true }
+        if self.font != font {
+            self.font = font
+            lineHeight = ceil(("Xg" as NSString).size(withAttributes: [.font: font]).height)
+            changed = true
         }
-        if textField.textColor != color { textField.textColor = color }
-        let alignment: NSTextAlignment = trailing ? .right : .left
-        if textField.alignment != alignment { textField.alignment = alignment }
-        toolTip = nil
+        if self.color != color { self.color = color; changed = true }
+        if self.trailing != trailing { self.trailing = trailing; changed = true }
+        if changed { needsDisplay = true }
+        if toolTip != tip { toolTip = tip }
+    }
+
+    func setIcon(_ image: NSImage) {
+        guard icon !== image else { return }
+        icon = image
+        needsDisplay = true
+    }
+
+    override func accessibilityLabel() -> String? { text }
+
+    override func draw(_ dirtyRect: NSRect) {
+        var x: CGFloat = 2
+        if hasIcon {
+            icon?.draw(in: NSRect(x: x, y: floor((bounds.height - 16) / 2), width: 16, height: 16), from: .zero,
+                       operation: .sourceOver, fraction: 1, respectFlipped: true, hints: nil)
+            x += 22
+        }
+        let attributes: [NSAttributedString.Key: Any] = [
+            .font: font,
+            .foregroundColor: backgroundStyle == .emphasized ? NSColor.alternateSelectedControlTextColor : color,
+            .paragraphStyle: Self.paragraphs[trailing]!,
+        ]
+        let rect = NSRect(x: x, y: floor((bounds.height - lineHeight) / 2), width: max(0, bounds.width - x - 2), height: lineHeight)
+        (text as NSString).draw(with: rect, options: [.usesLineFragmentOrigin, .truncatesLastVisibleLine], attributes: attributes)
     }
 }
 

@@ -87,12 +87,14 @@ final class NetworkCollector {
     }
 
     private let store = SCDynamicStoreCreate(nil, "Boxtop" as CFString, nil, nil)
+    private var primary: (name: String?, checked: Date) = (nil, .distantPast)
 
+    /// The interface carrying the default route, re-read every 5 s (a configd round trip).
     func primaryInterface() -> String? {
-        guard let store,
-              let global = SCDynamicStoreCopyValue(store, "State:/Network/Global/IPv4" as CFString) as? [String: Any]
-        else { return nil }
-        return global["PrimaryInterface"] as? String
+        guard Date().timeIntervalSince(primary.checked) >= 5 else { return primary.name }
+        let global = store.flatMap { SCDynamicStoreCopyValue($0, "State:/Network/Global/IPv4" as CFString) as? [String: Any] }
+        primary = (global?["PrimaryInterface"] as? String, Date())
+        return primary.name
     }
 
     /// Resets "total" and "top" counters (btop's net reset key).
