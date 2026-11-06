@@ -21,10 +21,11 @@ echo "==> Packaging"
 mkdir -p dist
 ZIP="dist/Boxtop-$VERSION.zip"
 rm -f "$ZIP" "$ZIP.sha256"
-# No extended attributes or __MACOSX entries in the archive.
+# No extended attributes or __MACOSX entries in the archive, and timestamps in UTC: zip entries
+# also store local time, which next to the UTC copy would give away the packer's time zone.
 xattr -cr build/Boxtop.app
 codesign --force --deep --sign - build/Boxtop.app >/dev/null 2>&1
-ditto -c -k --norsrc --keepParent build/Boxtop.app "$ZIP"
+TZ=UTC ditto -c -k --norsrc --keepParent build/Boxtop.app "$ZIP"
 (cd dist && shasum -a 256 "Boxtop-$VERSION.zip" > "Boxtop-$VERSION.zip.sha256")
 cat "$ZIP.sha256"
 echo "$ZIP"

@@ -59,13 +59,49 @@ The window stops drawing whenever it is completely hidden (covered, minimized, o
 
 ## Install
 
-Download `Boxtop-<version>.zip` from the Releases page, unzip it and move `Boxtop.app` to `/Applications`.
+1. Download `Boxtop-<version>.zip` from the [Releases page](https://github.com/gargamel778/Boxtop/releases), and the `.sha256` file next to it if you want to check the download.
+2. Unzip it and move `Boxtop.app` to `/Applications`.
+3. Open it. The first launch needs one extra step, described below.
 
-Release builds are ad-hoc signed, not notarized, so macOS blocks the first launch. Open Boxtop once, then go to System Settings → Privacy & Security and click Open Anyway. Or run:
+### Opening an app that isn't notarized
+
+Boxtop's releases are not notarized by Apple and not signed with a developer certificate. They carry an ad-hoc signature, which shows the app hasn't been changed since it was built but doesn't identify who built it. (An app can't be fully unsigned: Apple Silicon Macs only run signed code.) Browsers mark downloads as quarantined, so on the first launch Gatekeeper stops Boxtop with a message that Apple could not verify it is free of malware.
+
+Allow it once per downloaded version, in either of these ways:
+
+- **System Settings:** open Boxtop and close the warning. Then go to System Settings → Privacy & Security, scroll down to Security, and click **Open Anyway** next to the message about Boxtop. Confirm with your password or Touch ID, then click Open.
+- **Terminal:** remove the quarantine flag the browser added:
+
+  ```bash
+  xattr -dr com.apple.quarantine /Applications/Boxtop.app
+  ```
+
+On macOS 15 and later, right-click → Open no longer skips this check.
+
+### Checking the download
+
+Compare the zip with the published checksum (run this where you downloaded both files):
 
 ```bash
-xattr -dr com.apple.quarantine /Applications/Boxtop.app
+shasum -a 256 -c Boxtop-<version>.zip.sha256
 ```
+
+After unzipping, check that the signature is intact. `Signature=adhoc` is expected:
+
+```bash
+codesign --verify --deep --strict /Applications/Boxtop.app && codesign -dv /Applications/Boxtop.app
+```
+
+If you'd rather not run a downloaded binary at all, [build it from source](#build). Apps you build yourself aren't quarantined and open normally.
+
+### Troubleshooting
+
+- **"Boxtop is damaged and can't be opened":** the app was changed after it was signed, usually by an unzip tool that dropped files. Delete it, unzip the download again with Finder (or `ditto -x -k Boxtop-<version>.zip .`), move it to `/Applications` and remove the quarantine flag as above.
+- **No Open Anyway button:** it appears for about an hour after a blocked launch, so open Boxtop again and then look. On Macs managed by an organization, the administrator may have turned it off; build from source or ask them.
+- **Settings don't stick, or the app runs from a strange path:** macOS runs a quarantined app that was never moved from a random read-only location (App Translocation). Move Boxtop to `/Applications` before opening it.
+- **After an update:** each new download is quarantined again, so allow it once more.
+
+Boxtop doesn't ask for any privacy permissions (no Accessibility, Full Disk Access or Screen Recording). It reads the same system counters as Activity Monitor.
 
 ## Build
 
