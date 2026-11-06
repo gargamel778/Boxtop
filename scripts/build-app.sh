@@ -2,12 +2,16 @@
 # Builds a universal (Apple Silicon + Intel) Boxtop.app into ./build.
 #   scripts/build-app.sh            release, universal
 #   ARCHS="arm64" scripts/build-app.sh   single architecture
+#   VERSION=1.2.3 BUILD_NUMBER=7 scripts/build-app.sh   explicit version (releases)
 set -euo pipefail
 cd "$(dirname "$0")/.."
 
 ARCHS=${ARCHS:-"arm64 x86_64"}
-VERSION=${VERSION:-1.0.0}
-BUILD_NUMBER=${BUILD_NUMBER:-1}
+# Version and build number default to the latest release tag (v1.2.3) and the commit count, so
+# development builds show where they come from in About Boxtop.
+VERSION=${VERSION:-$(git describe --tags --abbrev=0 --match 'v[0-9]*' 2>/dev/null | sed 's/^v//')}
+VERSION=${VERSION:-0.0.0}
+BUILD_NUMBER=${BUILD_NUMBER:-$(git rev-list --count HEAD 2>/dev/null || echo 1)}
 ARCH_FLAGS=()
 for arch in $ARCHS; do ARCH_FLAGS+=(--arch "$arch"); done
 
