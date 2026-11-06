@@ -9,7 +9,7 @@ cd "$(dirname "$0")/.."
 ARCHS=${ARCHS:-"arm64 x86_64"}
 # Version and build number default to the latest release tag (v1.2.3) and the commit count, so
 # development builds show where they come from in About Boxtop.
-VERSION=${VERSION:-$(git describe --tags --abbrev=0 --match 'v[0-9]*' 2>/dev/null | sed 's/^v//')}
+VERSION=${VERSION:-$(git describe --tags --abbrev=0 --match 'v[0-9]*' 2>/dev/null | sed 's/^v//' || true)}
 VERSION=${VERSION:-0.0.0}
 BUILD_NUMBER=${BUILD_NUMBER:-$(git rev-list --count HEAD 2>/dev/null || echo 1)}
 ARCH_FLAGS=()
